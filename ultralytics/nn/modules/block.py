@@ -2085,7 +2085,7 @@ class C3SW_T(nn.Module):
         self.cv2 = Conv(c1, c_, 1, 1)
         self.cv3 = Conv(2 * c_, c2, 1)
         
-        self.window_size = 7cd
+        self.window_size = 7
         # We use ModuleList so we can iterate and dynamically update them during the forward pass
         self.m = nn.ModuleList([
             SwinTransformerBlock(
