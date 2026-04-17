@@ -18,6 +18,7 @@ from ultralytics.nn.modules import (
     C2PSA,
     C3,
     C3TR,
+    C3SW_T,
     ELAN1,
     OBB,
     OBB26,
@@ -1591,6 +1592,7 @@ def parse_model(d, ch, verbose=True):
             C2,
             C2f,
             C3k2,
+            C3SW_T,
             RepNCSPELAN4,
             ELAN1,
             ADown,
@@ -1627,6 +1629,7 @@ def parse_model(d, ch, verbose=True):
             C2fCIB,
             C2PSA,
             A2C2f,
+            C3SW_T,
         }
     )
     for i, (f, n, m, args) in enumerate(d["backbone"] + d["head"]):  # from, number, module, args

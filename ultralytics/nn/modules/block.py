@@ -2071,3 +2071,89 @@ class RealNVP(nn.Module):
             self.float()
         z, log_det = self.backward_p(x)
         return self.prior.log_prob(z) + log_det
+    
+
+
+from .swin_transformer import SwinTransformerBlock 
+
+class C3SW_T(nn.Module):
+    # CSP Bottleneck with Dynamic Swin Transformer blocks
+    def __init__(self, c1, c2, n=1, shortcut=True, g=1, e=0.5, res=20):
+        super().__init__()
+        c_ = int(c2 * e)  # hidden channels
+        self.cv1 = Conv(c1, c_, 1, 1)
+        self.cv2 = Conv(c1, c_, 1, 1)
+        self.cv3 = Conv(2 * c_, c2, 1)
+        
+        self.window_size = 7cd
+        # We use ModuleList so we can iterate and dynamically update them during the forward pass
+        self.m = nn.ModuleList([
+            SwinTransformerBlock(
+                dim=c_, 
+                input_resolution=(res, res), 
+                num_heads=4, 
+                window_size=self.window_size, 
+                shift_size=0 if (i % 2 == 0) else self.window_size // 2
+            ) for i in range(n)
+        ])
+
+    def forward(self, x):
+        y1 = self.cv1(x)
+        b, c, h, w = y1.shape
+
+        # 1. Calculate padding needed to make h, w perfectly divisible by window_size
+        pad_b = (self.window_size - h % self.window_size) % self.window_size
+        pad_r = (self.window_size - w % self.window_size) % self.window_size
+
+        # 2. Pad y1 (left, right, top, bottom)
+        import torch.nn.functional as F
+        y1 = F.pad(y1, (0, pad_r, 0, pad_b))
+        _, _, hp, wp = y1.shape
+
+        # 3. Reshape for Swin Transformer: [B, C, H, W] -> [B, H*W, C]
+        y1 = y1.flatten(2).transpose(1, 2)
+
+        # 4. Pass through Swin blocks with dynamic resolution & mask tracking
+        for blk in self.m:
+            if blk.input_resolution != (hp, wp):
+                blk.input_resolution = (hp, wp)
+                
+                # If shifted windows are used, dynamically rebuild the attention mask for the padded size
+                if blk.shift_size > 0:
+                    img_mask = torch.zeros((1, hp, wp, 1), device=x.device)
+                    h_slices = (slice(0, -blk.window_size),
+                                slice(-blk.window_size, -blk.shift_size),
+                                slice(-blk.shift_size, None))
+                    w_slices = (slice(0, -blk.window_size),
+                                slice(-blk.window_size, -blk.shift_size),
+                                slice(-blk.shift_size, None))
+                    cnt = 0
+                    for _h in h_slices:
+                        for _w in w_slices:
+                            img_mask[:, _h, _w, :] = cnt
+                            cnt += 1
+
+                    # Recompute window partitions
+                    B_, H_, W_, C_ = img_mask.shape
+                    ws = blk.window_size
+                    mask_windows = img_mask.view(B_, H_ // ws, ws, W_ // ws, ws, C_)
+                    mask_windows = mask_windows.permute(0, 1, 3, 2, 4, 5).contiguous().view(-1, ws, ws, C_)
+                    mask_windows = mask_windows.view(-1, ws * ws)
+                    attn_mask = mask_windows.unsqueeze(1) - mask_windows.unsqueeze(2)
+                    attn_mask = attn_mask.masked_fill(attn_mask != 0, float(-100.0)).masked_fill(attn_mask == 0, float(0.0))
+                    
+                    # Update the block's mask on the GPU
+                    blk.attn_mask = attn_mask
+
+            y1 = blk(y1)
+
+        # 5. Reshape back for YOLO: [B, H*W, C] -> [B, C, H, W]
+        y1 = y1.transpose(1, 2).view(b, c, hp, wp)
+
+        # 6. Un-pad back to original H, W feature map size
+        if pad_r > 0 or pad_b > 0:
+            y1 = y1[:, :, :h, :w].contiguous()
+
+        # 7. Concatenate and return
+        y2 = self.cv2(x)
+        return self.cv3(torch.cat((y1, y2), 1))
