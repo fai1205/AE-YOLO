@@ -34,17 +34,16 @@ backbone:
 head:
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
   - [[-1, 6], 1, Concat, [1]] # cat backbone P4
-  - [-1, 2, C3SW_T, [512, True, 1, 0.5, 40]] # 13 (Stride 16)
+  - [-1, 2, C3k2, [512, False]] # 13
 
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
   - [[-1, 4], 1, Concat, [1]] # cat backbone P3
-  - [-1, 2, C3SW_T, [256, True, 1, 0.5, 80]] # 16 (Stride 8)
+  - [-1, 2, C3k2, [256, False]] # 16
 
   # --- EXTRA P2 HEAD (NEW UPSAMPLE FOR SMALL OBJECTS) ---
   - [-1, 1, nn.Upsample, [None, 2, "nearest"]]
   - [[-1, 1], 1, Concat, [1]] # cat backbone P2 (Index 1 is Stride 4)
-  # Stride 4: 640 / 4 = 160 resolution
-  - [-1, 2, C3SW_T, [128, True, 1, 0.5, 160]] # 19 (P2/4-tiny)
+  - [-1, 2, C3k2, [128, False]] # 19
 
   # --- DOWN-PATH (FUSING FEATURES BACK DOWN) ---
   - [-1, 1, Conv, [128, 3, 2]] # Downsample back to Stride 8
